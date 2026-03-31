@@ -7,7 +7,6 @@ import pandas as pd
 st.set_page_config(page_title="MARC Field/Subfield CSV Counts", layout="centered")
 st.title("📚 MARC Field/Subfield Value Counts")
 
-# --- Upload MARC file ---
 uploaded_file = st.file_uploader(
     "Upload MARC file (.mrc, .iso, .xml)", 
     type=["mrc", "iso", "xml"]
@@ -15,7 +14,6 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file:
     try:
-        # --- Read records ---
         file_ext = uploaded_file.name.split(".")[-1].lower()
         records = []
 
@@ -33,16 +31,16 @@ if uploaded_file:
         if not records:
             st.warning("No valid MARC records found.")
         else:
-            # --- Collect only field-subfield codes (no values) ---
+            # --- Build field-subfield codes only ---
             field_options = set()
             for record in records:
                 for field in record.get_fields():
                     if field.is_control_field():
-                        field_options.add(field.tag)  # e.g., 001, 005
+                        field_options.add(field.tag)
                     else:
-                        # subfields = [code1, value1, code2, value2, ...]
-                        codes = field.subfields[::2]
-                        for code in codes:
+                        # In pymarc >=5, field.subfields is list of Subfield objects
+                        for sf in field.subfields[::2]:  # take every subfield code object
+                            code = sf if isinstance(sf, str) else sf.code
                             field_options.add(f"{field.tag}${code}")
 
             field_options = sorted(list(field_options))
@@ -61,7 +59,7 @@ if uploaded_file:
                     if "$" in sel:
                         tag, code = sel.split("$")
                     else:
-                        tag, code = sel, None  # control field
+                        tag, code = sel, None
 
                     values = []
                     for record in records:
@@ -69,12 +67,15 @@ if uploaded_file:
                             if field is None:
                                 continue
                             if code:  # data field
-                                # collect all values for the subfield code
-                                sf_values = [
-                                    field.subfields[i+1].strip()
-                                    for i in range(0, len(field.subfields), 2)
-                                    if field.subfields[i].lower() == code.lower()
-                                ]
+                                # Collect all values for the subfield code
+                                sf_values = []
+                                for i in range(0, len(field.subfields), 2):
+                                    sf_obj = field.subfields[i]
+                                    val_obj = field.subfields[i+1]
+                                    sf_code = sf_obj if isinstance(sf_obj, str) else sf_obj.code
+                                    val = val_obj if isinstance(val_obj, str) else val_obj.value
+                                    if sf_code.lower() == code.lower():
+                                        sf_values.append(val.strip())
                                 values.extend(sf_values)
                             else:  # control field
                                 values.append(field.value().strip())
@@ -88,9 +89,8 @@ if uploaded_file:
                         })
 
                 df = pd.DataFrame(all_rows)
-                st.dataframe(df.head(20))  # preview first 20 rows
+                st.dataframe(df.head(20))
 
-                # --- Download CSV ---
                 csv_bytes = df.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     label="Download Counts as CSV",
