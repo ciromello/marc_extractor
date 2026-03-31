@@ -6,10 +6,12 @@ import pandas as pd
 st.set_page_config(page_title="MARC Field/Subfield CSV Counts", layout="centered")
 st.title("📚 MARC Field/Subfield Value Counts")
 
+# --- Upload MARC file ---
 uploaded_file = st.file_uploader("Upload MARC file (.mrc, .iso, .xml)", type=["mrc", "iso", "xml"])
 
 if uploaded_file:
     try:
+        # --- Read MARC records ---
         file_ext = uploaded_file.name.split(".")[-1].lower()
         records = []
 
@@ -27,17 +29,18 @@ if uploaded_file:
         if not records:
             st.warning("No valid MARC records found.")
         else:
-            # --- Build field-subfield codes only ---
+            # --- Build field-subfield options ---
             field_options = set()
             for record in records:
                 for field in record.get_fields():
                     if field.is_control_field():
                         field_options.add(field.tag)
                     else:
-                        # field.subfields is flat list of strings [code1, value1, code2, value2,...]
-                        for i in range(0, len(field.subfields)-1, 2):
-                            sf_code = field.subfields[i]
-                            field_options.add(f"{field.tag}${sf_code}")
+                        sf_list = field.subfields
+                        for i in range(0, len(sf_list)-1, 2):
+                            code = sf_list[i]
+                            if isinstance(code, str):
+                                field_options.add(f"{field.tag}${code}")
 
             field_options = sorted(list(field_options))
 
@@ -81,8 +84,9 @@ if uploaded_file:
                         })
 
                 df = pd.DataFrame(all_rows)
-                st.dataframe(df.head(20))
+                st.dataframe(df.head(20))  # preview top 20 rows
 
+                # --- Download CSV ---
                 csv_bytes = df.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     label="Download Counts as CSV",
