@@ -6,8 +6,9 @@ import pandas as pd
 st.set_page_config(page_title="MARC Field/Subfield CSV Counts", layout="centered")
 st.title("📚 MARC Field/Subfield Value Counts")
 
-# --- Upload MARC file ---
-uploaded_file = st.file_uploader("Upload MARC file (.mrc, .iso, .xml)", type=["mrc", "iso", "xml"])
+uploaded_file = st.file_uploader(
+    "Upload MARC file (.mrc, .iso, .xml)", type=["mrc", "iso", "xml"]
+)
 
 if uploaded_file:
     try:
@@ -29,43 +30,49 @@ if uploaded_file:
         if not records:
             st.warning("No valid MARC records found.")
         else:
-            # --- Build all field-subfield options safely ---
+            # --- Build all field-subfield options ---
             field_options = set()
+            field_subfields_map = dict()  # field -> list of subfields detected
             for record in records:
                 for field in record.get_fields():
                     if field.is_control_field():
                         field_options.add(field.tag)
+                        field_subfields_map.setdefault(field.tag, [])
                     else:
                         sf_list = getattr(field, 'subfields', [])
+                        codes_in_field = set()
                         for i in range(0, len(sf_list)-1, 2):
-                            code = sf_list[i]
-                            if isinstance(code, str):
-                                field_options.add(f"{field.tag}${code}")
+                            code = str(sf_list[i])
+                            codes_in_field.add(code)
+                            field_options.add(f"{field.tag}${code}")
+                        field_subfields_map.setdefault(field.tag, set()).update(codes_in_field)
 
             field_options = sorted(list(field_options))
 
             st.subheader("Select field-subfield(s) to count values")
             st.info(
-                "You can select from the list or type a field-subfield manually "
-                "(e.g., 990$a) if it does not appear."
+                "Select from the list or type a field-subfield manually (e.g., 990$a)."
             )
 
             selected_fields = st.multiselect(
-                "Choose field-subfield (e.g., 245$a, 100$a, 990$a)",
+                "Choose field-subfield",
                 options=field_options,
-                default=[],
-                help="Select one or multiple field-subfields."
+                default=[]
             )
 
-            # Optional: allow typing manually
+            # Optional manual input
             manual_field = st.text_input("Or type a field-subfield manually (e.g., 990$a)")
             if manual_field:
                 selected_fields.append(manual_field.strip())
 
-            if selected_fields:
-                st.subheader("Preview of value counts")
-                all_rows = []
+            # --- Preview subfield codes in the file ---
+            for field_tag in set(f.split("$")[0] for f in selected_fields if "$" in f):
+                detected_codes = sorted(list(field_subfields_map.get(field_tag, [])))
+                st.text(f"Detected subfields for {field_tag}: {', '.join(detected_codes) if detected_codes else 'None'}")
 
+            # --- Count values ---
+            if selected_fields:
+                all_rows = []
                 for sel in selected_fields:
                     if "$" in sel:
                         tag, code = sel.split("$")
@@ -80,13 +87,15 @@ if uploaded_file:
                             if code:  # data field
                                 sf_list = getattr(field, 'subfields', [])
                                 for i in range(0, len(sf_list)-1, 2):
-                                    sf_code = sf_list[i].lower()
-                                    sf_value = sf_list[i+1].strip()
+                                    sf_code = str(sf_list[i]).lower()
+                                    sf_value = str(sf_list[i+1]).strip()
                                     if sf_code == code.lower():
                                         values.append(sf_value)
                             else:  # control field
                                 values.append(field.value().strip())
 
+                    if not values:
+                        st.warning(f"No values found for {sel}. Please check the subfield code.")
                     counter = Counter(values)
                     for val, cnt in counter.items():
                         all_rows.append({
@@ -95,17 +104,20 @@ if uploaded_file:
                             "Count": cnt
                         })
 
-                df = pd.DataFrame(all_rows)
-                st.dataframe(df.head(20))  # preview top 20 rows
+                if all_rows:
+                    df = pd.DataFrame(all_rows)
+                    st.subheader("Preview of value counts (top 20 rows)")
+                    st.dataframe(df.head(20))
 
-                # --- Download CSV ---
-                csv_bytes = df.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    label="Download Counts as CSV",
-                    data=csv_bytes,
-                    file_name="marc_field_counts.csv",
-                    mime="text/csv"
-                )
+                    csv_bytes = df.to_csv(index=False).encode("utf-8")
+                    st.download_button(
+                        label="Download Counts as CSV",
+                        data=csv_bytes,
+                        file_name="marc_field_counts.csv",
+                        mime="text/csv"
+                    )
+                else:
+                    st.warning("No values found for the selected field-subfields.")
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
