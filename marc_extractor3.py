@@ -1,16 +1,12 @@
 import streamlit as st
 from pymarc import MARCReader, parse_xml_to_array
 from collections import Counter
-from io import BytesIO
 import pandas as pd
 
 st.set_page_config(page_title="MARC Field/Subfield CSV Counts", layout="centered")
 st.title("📚 MARC Field/Subfield Value Counts")
 
-uploaded_file = st.file_uploader(
-    "Upload MARC file (.mrc, .iso, .xml)", 
-    type=["mrc", "iso", "xml"]
-)
+uploaded_file = st.file_uploader("Upload MARC file (.mrc, .iso, .xml)", type=["mrc", "iso", "xml"])
 
 if uploaded_file:
     try:
@@ -38,11 +34,9 @@ if uploaded_file:
                     if field.is_control_field():
                         field_options.add(field.tag)
                     else:
-                        # field.subfields is flat list: [code1, value1, code2, value2, ...]
-                        for i in range(0, len(field.subfields), 2):
+                        # field.subfields is flat list of strings [code1, value1, code2, value2,...]
+                        for i in range(0, len(field.subfields)-1, 2):
                             sf_code = field.subfields[i]
-                            if hasattr(sf_code, "code"):
-                                sf_code = sf_code.code
                             field_options.add(f"{field.tag}${sf_code}")
 
             field_options = sorted(list(field_options))
@@ -70,13 +64,11 @@ if uploaded_file:
                                 continue
                             if code:  # data field
                                 sf_list = field.subfields
-                                for i in range(0, len(sf_list)-1, 2):  # -1 ensures i+1 is safe
-                                    sf_obj = sf_list[i]
-                                    val_obj = sf_list[i+1]
-                                    sf_code = sf_obj.code if hasattr(sf_obj, "code") else sf_obj
-                                    val = val_obj.value if hasattr(val_obj, "value") else val_obj
-                                    if sf_code.lower() == code.lower():
-                                        values.append(val.strip())
+                                for i in range(0, len(sf_list)-1, 2):
+                                    sf_code = sf_list[i].lower()
+                                    sf_value = sf_list[i+1].strip()
+                                    if sf_code == code.lower():
+                                        values.append(sf_value)
                             else:  # control field
                                 values.append(field.value().strip())
 
