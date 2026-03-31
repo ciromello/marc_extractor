@@ -33,24 +33,24 @@ if uploaded_file:
         if not records:
             st.warning("No valid MARC records found.")
         else:
-            # --- Collect field-subfield codes only (no values) ---
+            # --- Collect only field-subfield codes, no values ---
             field_options = set()
             for record in records:
                 for field in record.get_fields():
                     if field.is_control_field():
-                        field_options.add(field.tag)
+                        field_options.add(field.tag)  # e.g., 001, 005
                     else:
-                        # Only take subfield codes, not values
-                        # field.subfields = [code1, value1, code2, value2,...]
-                        subfield_codes = field.subfields[::2]
-                        for code in subfield_codes:
+                        # Take only subfield codes from subfields list
+                        # subfields = [code1, value1, code2, value2, ...]
+                        codes = field.subfields[::2]  # every even index = code
+                        for code in codes:
                             field_options.add(f"{field.tag}${code}")
 
             field_options = sorted(list(field_options))
 
             st.subheader("Select field-subfield(s) to count values")
             selected_fields = st.multiselect(
-                "Choose field-subfield (e.g., 245$a, 100$a, 990$a)",
+                "Choose field-subfield (e.g., 990$a, 245$a)",
                 options=field_options
             )
 
@@ -70,8 +70,13 @@ if uploaded_file:
                             if field is None:
                                 continue
                             if code:  # data field
-                                if code in field:
-                                    values.append(field[code])
+                                # collect all values for the subfield code
+                                sf_values = [
+                                    field.subfields[i+1]
+                                    for i in range(0, len(field.subfields), 2)
+                                    if field.subfields[i] == code
+                                ]
+                                values.extend(sf_values)
                             else:  # control field
                                 values.append(field.value())
 
@@ -84,7 +89,7 @@ if uploaded_file:
                         })
 
                 df = pd.DataFrame(all_rows)
-                st.dataframe(df.head(20))  # preview first 20 rows
+                st.dataframe(df.head(20))  # preview top 20
 
                 # --- Download CSV ---
                 csv_bytes = df.to_csv(index=False).encode("utf-8")
