@@ -29,14 +29,14 @@ if uploaded_file:
         if not records:
             st.warning("No valid MARC records found.")
         else:
-            # --- Build field-subfield options ---
+            # --- Build all field-subfield options safely ---
             field_options = set()
             for record in records:
                 for field in record.get_fields():
                     if field.is_control_field():
                         field_options.add(field.tag)
                     else:
-                        sf_list = field.subfields
+                        sf_list = getattr(field, 'subfields', [])
                         for i in range(0, len(sf_list)-1, 2):
                             code = sf_list[i]
                             if isinstance(code, str):
@@ -45,10 +45,22 @@ if uploaded_file:
             field_options = sorted(list(field_options))
 
             st.subheader("Select field-subfield(s) to count values")
+            st.info(
+                "You can select from the list or type a field-subfield manually "
+                "(e.g., 990$a) if it does not appear."
+            )
+
             selected_fields = st.multiselect(
                 "Choose field-subfield (e.g., 245$a, 100$a, 990$a)",
-                options=field_options
+                options=field_options,
+                default=[],
+                help="Select one or multiple field-subfields."
             )
+
+            # Optional: allow typing manually
+            manual_field = st.text_input("Or type a field-subfield manually (e.g., 990$a)")
+            if manual_field:
+                selected_fields.append(manual_field.strip())
 
             if selected_fields:
                 st.subheader("Preview of value counts")
@@ -66,7 +78,7 @@ if uploaded_file:
                             if field is None:
                                 continue
                             if code:  # data field
-                                sf_list = field.subfields
+                                sf_list = getattr(field, 'subfields', [])
                                 for i in range(0, len(sf_list)-1, 2):
                                     sf_code = sf_list[i].lower()
                                     sf_value = sf_list[i+1].strip()
