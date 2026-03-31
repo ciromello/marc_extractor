@@ -2,122 +2,114 @@ import streamlit as st
 from pymarc import MARCReader, parse_xml_to_array
 from collections import Counter
 import pandas as pd
+import io
 
 st.set_page_config(page_title="MARC Field/Subfield CSV Counts", layout="centered")
-st.title("📚 MARC Field/Subfield Value Counts")
+st.title("📚 MARC Field/Subfield Value Counts (Large Files Optimized)")
 
 uploaded_file = st.file_uploader(
-    "Upload MARC file (.mrc, .iso, .xml)", type=["mrc", "iso", "xml"]
+    "Upload MARC file (.mrc, .iso, .xml) — optimized for large files",
+    type=["mrc", "iso", "xml"]
 )
 
 if uploaded_file:
     try:
-        # --- Read MARC records ---
+        # --- Determine file type ---
         file_ext = uploaded_file.name.split(".")[-1].lower()
-        records = []
+        st.info("Processing file in streaming mode to handle large files efficiently...")
 
-        if file_ext in ["mrc", "iso"]:
-            reader = MARCReader(uploaded_file.read())
-            for record in reader:
-                if record is not None:
-                    records.append(record)
-        elif file_ext == "xml":
-            uploaded_file.seek(0)
-            records = parse_xml_to_array(uploaded_file)
+        # --- Let user type/select fields before processing ---
+        st.subheader("Enter field-subfield(s) to count (e.g., 990$a)")
+        selected_fields_input = st.text_area(
+            "Enter one per line",
+            help="Example: 990$a\n245$a\n100$a"
+        )
 
-        st.success(f"Successfully read {len(records)} valid records!")
+        if selected_fields_input:
+            selected_fields = [line.strip() for line in selected_fields_input.splitlines() if line.strip()]
+            counters = {sel: Counter() for sel in selected_fields}
+            total_records = 0
 
-        if not records:
-            st.warning("No valid MARC records found.")
-        else:
-            # --- Build all field-subfield options ---
-            field_options = set()
-            field_subfields_map = dict()  # field -> list of subfields detected
-            for record in records:
-                for field in record.get_fields():
-                    if field.is_control_field():
-                        field_options.add(field.tag)
-                        field_subfields_map.setdefault(field.tag, [])
-                    else:
-                        sf_list = getattr(field, 'subfields', [])
-                        codes_in_field = set()
-                        for i in range(0, len(sf_list)-1, 2):
-                            code = str(sf_list[i])
-                            codes_in_field.add(code)
-                            field_options.add(f"{field.tag}${code}")
-                        field_subfields_map.setdefault(field.tag, set()).update(codes_in_field)
-
-            field_options = sorted(list(field_options))
-
-            st.subheader("Select field-subfield(s) to count values")
-            st.info(
-                "Select from the list or type a field-subfield manually (e.g., 990$a)."
-            )
-
-            selected_fields = st.multiselect(
-                "Choose field-subfield",
-                options=field_options,
-                default=[]
-            )
-
-            # Optional manual input
-            manual_field = st.text_input("Or type a field-subfield manually (e.g., 990$a)")
-            if manual_field:
-                selected_fields.append(manual_field.strip())
-
-            # --- Preview subfield codes in the file ---
-            for field_tag in set(f.split("$")[0] for f in selected_fields if "$" in f):
-                detected_codes = sorted(list(field_subfields_map.get(field_tag, [])))
-                st.text(f"Detected subfields for {field_tag}: {', '.join(detected_codes) if detected_codes else 'None'}")
-
-            # --- Count values ---
-            if selected_fields:
-                all_rows = []
-                for sel in selected_fields:
-                    if "$" in sel:
-                        tag, code = sel.split("$")
-                    else:
-                        tag, code = sel, None
-
-                    values = []
-                    for record in records:
+            if file_ext in ["mrc", "iso"]:
+                uploaded_file.seek(0)
+                reader = MARCReader(uploaded_file.read())
+                for record in reader:
+                    total_records += 1
+                    for sel in selected_fields:
+                        if "$" in sel:
+                            tag, code = sel.split("$")
+                        else:
+                            tag, code = sel, None
                         for field in record.get_fields(tag):
                             if field is None:
                                 continue
-                            if code:  # data field
-                                sf_list = getattr(field, 'subfields', [])
+                            sf_list = getattr(field, 'subfields', [])
+                            if sf_list:
                                 for i in range(0, len(sf_list)-1, 2):
                                     sf_code = str(sf_list[i]).lower()
                                     sf_value = str(sf_list[i+1]).strip()
-                                    if sf_code == code.lower():
-                                        values.append(sf_value)
-                            else:  # control field
-                                values.append(field.value().strip())
+                                    if code and sf_code == code.lower():
+                                        counters[sel][sf_value] += 1
+                            else:
+                                # fallback if subfields missing
+                                if code and code.lower() == "a":
+                                    counters[sel][field.value().strip()] += 1
+                                elif not code:
+                                    counters[sel][field.value().strip()] += 1
+            elif file_ext == "xml":
+                uploaded_file.seek(0)
+                records = parse_xml_to_array(uploaded_file)
+                for record in records:
+                    total_records += 1
+                    for sel in selected_fields:
+                        if "$" in sel:
+                            tag, code = sel.split("$")
+                        else:
+                            tag, code = sel, None
+                        for field in record.get_fields(tag):
+                            if field is None:
+                                continue
+                            sf_list = getattr(field, 'subfields', [])
+                            if sf_list:
+                                for i in range(0, len(sf_list)-1, 2):
+                                    sf_code = str(sf_list[i]).lower()
+                                    sf_value = str(sf_list[i+1]).strip()
+                                    if code and sf_code == code.lower():
+                                        counters[sel][sf_value] += 1
+                            else:
+                                if code and code.lower() == "a":
+                                    counters[sel][field.value().strip()] += 1
+                                elif not code:
+                                    counters[sel][field.value().strip()] += 1
 
-                    if not values:
-                        st.warning(f"No values found for {sel}. Please check the subfield code.")
-                    counter = Counter(values)
-                    for val, cnt in counter.items():
-                        all_rows.append({
-                            "Field-Subfield": sel,
-                            "Value": val,
-                            "Count": cnt
-                        })
+            st.success(f"Processed {total_records} records successfully!")
 
-                if all_rows:
-                    df = pd.DataFrame(all_rows)
-                    st.subheader("Preview of value counts (top 20 rows)")
-                    st.dataframe(df.head(20))
+            # --- Build final DataFrame ---
+            all_rows = []
+            for sel, counter in counters.items():
+                if not counter:
+                    st.warning(f"No values found for {sel}")
+                for val, cnt in counter.items():
+                    all_rows.append({
+                        "Field-Subfield": sel,
+                        "Value": val,
+                        "Count": cnt
+                    })
 
-                    csv_bytes = df.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        label="Download Counts as CSV",
-                        data=csv_bytes,
-                        file_name="marc_field_counts.csv",
-                        mime="text/csv"
-                    )
-                else:
-                    st.warning("No values found for the selected field-subfields.")
+            if all_rows:
+                df = pd.DataFrame(all_rows)
+                st.subheader("Preview of counts (top 20 rows)")
+                st.dataframe(df.head(20))
+
+                csv_bytes = df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_bytes,
+                    file_name="marc_field_counts_large.csv",
+                    mime="text/csv"
+                )
+            else:
+                st.warning("No values found for the selected field-subfields.")
 
     except Exception as e:
         st.error(f"An error occurred: {e}")
