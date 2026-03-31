@@ -8,7 +8,10 @@ st.set_page_config(page_title="MARC Field/Subfield CSV Counts", layout="centered
 st.title("📚 MARC Field/Subfield Value Counts")
 
 # --- Upload MARC file ---
-uploaded_file = st.file_uploader("Upload MARC file (.mrc, .iso, .xml)", type=["mrc", "iso", "xml"])
+uploaded_file = st.file_uploader(
+    "Upload MARC file (.mrc, .iso, .xml)", 
+    type=["mrc", "iso", "xml"]
+)
 
 if uploaded_file:
     try:
@@ -30,15 +33,18 @@ if uploaded_file:
         if not records:
             st.warning("No valid MARC records found.")
         else:
-            # --- Collect field-subfield codes only ---
+            # --- Collect field-subfield codes only (no values) ---
             field_options = set()
             for record in records:
                 for field in record.get_fields():
                     if field.is_control_field():
-                        field_options.add(field.tag)  # control fields
+                        field_options.add(field.tag)
                     else:
-                        for code in field:
-                            field_options.add(f"{field.tag}${code}")  # field + subfield code only
+                        # Only take subfield codes, not values
+                        # field.subfields = [code1, value1, code2, value2,...]
+                        subfield_codes = field.subfields[::2]
+                        for code in subfield_codes:
+                            field_options.add(f"{field.tag}${code}")
 
             field_options = sorted(list(field_options))
 
@@ -49,7 +55,7 @@ if uploaded_file:
             )
 
             if selected_fields:
-                st.subheader("Preview of counts")
+                st.subheader("Preview of value counts")
                 all_rows = []
 
                 for sel in selected_fields:
@@ -71,11 +77,16 @@ if uploaded_file:
 
                     counter = Counter(values)
                     for val, cnt in counter.items():
-                        all_rows.append({"Field-Subfield": sel, "Value": val, "Count": cnt})
+                        all_rows.append({
+                            "Field-Subfield": sel,
+                            "Value": val,
+                            "Count": cnt
+                        })
 
                 df = pd.DataFrame(all_rows)
                 st.dataframe(df.head(20))  # preview first 20 rows
 
+                # --- Download CSV ---
                 csv_bytes = df.to_csv(index=False).encode("utf-8")
                 st.download_button(
                     label="Download Counts as CSV",
