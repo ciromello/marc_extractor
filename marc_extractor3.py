@@ -33,16 +33,15 @@ if uploaded_file:
         if not records:
             st.warning("No valid MARC records found.")
         else:
-            # --- Collect only field-subfield codes, no values ---
+            # --- Collect only field-subfield codes (no values) ---
             field_options = set()
             for record in records:
                 for field in record.get_fields():
                     if field.is_control_field():
                         field_options.add(field.tag)  # e.g., 001, 005
                     else:
-                        # Take only subfield codes from subfields list
                         # subfields = [code1, value1, code2, value2, ...]
-                        codes = field.subfields[::2]  # every even index = code
+                        codes = field.subfields[::2]
                         for code in codes:
                             field_options.add(f"{field.tag}${code}")
 
@@ -50,7 +49,7 @@ if uploaded_file:
 
             st.subheader("Select field-subfield(s) to count values")
             selected_fields = st.multiselect(
-                "Choose field-subfield (e.g., 990$a, 245$a)",
+                "Choose field-subfield (e.g., 245$a, 100$a, 990$a)",
                 options=field_options
             )
 
@@ -72,13 +71,13 @@ if uploaded_file:
                             if code:  # data field
                                 # collect all values for the subfield code
                                 sf_values = [
-                                    field.subfields[i+1]
+                                    field.subfields[i+1].strip()
                                     for i in range(0, len(field.subfields), 2)
-                                    if field.subfields[i] == code
+                                    if field.subfields[i].lower() == code.lower()
                                 ]
                                 values.extend(sf_values)
                             else:  # control field
-                                values.append(field.value())
+                                values.append(field.value().strip())
 
                     counter = Counter(values)
                     for val, cnt in counter.items():
@@ -89,7 +88,7 @@ if uploaded_file:
                         })
 
                 df = pd.DataFrame(all_rows)
-                st.dataframe(df.head(20))  # preview top 20
+                st.dataframe(df.head(20))  # preview first 20 rows
 
                 # --- Download CSV ---
                 csv_bytes = df.to_csv(index=False).encode("utf-8")
